@@ -157,6 +157,56 @@ static void test_foreach_visits_in_increasing_order(void) {
     rb_destroy(t);
 }
 
+/* Regression test for the single easiest bug to introduce in
+ * left_rotate/right_rotate: forgetting to update t->root when the node
+ * being rotated (x) is currently the root itself (the x->parent == t->nil
+ * branch). This is dangerous specifically because rb_validate's
+ * check_ordering *also* walks from t->root -- if t->root goes stale but
+ * still points at a node whose own remaining subtree happens to look
+ * locally ordered, check_ordering happily returns 0 and the bug slips
+ * through. Only checks that reach nodes independently of t->root's
+ * correctness (rb_size's counter, rb_find by key, rb_foreach's visit
+ * count) can actually catch a stranded subtree, so this test deliberately
+ * leans on those three instead of rb_validate.
+ *
+ * Ascending inserts "a","b","c" force a left_rotate exactly at the root:
+ * tracing rb_insert_fixup, inserting "c" hits case 3 (black uncle, outer
+ * child) via left_rotate(t, a) where "a" is still the root at that
+ * moment. Descending inserts "c","b","a" force the mirrored
+ * right_rotate at the root. If the root-update branch were missing,
+ * t->root would keep pointing at the old root node, which the rotation
+ * leaves with no children -- stranding the other two nodes: rb_size
+ * would still say 3, but rb_find/rb_foreach would only ever see 1. */
+static void test_root_rotation_updates_root_pointer(void) {
+    const char *ascending[] = {"a", "b", "c"};
+    const char *descending[] = {"c", "b", "a"};
+    const char *const *cases[] = {ascending, descending};
+
+    for (size_t c = 0; c < 2; c++) {
+        /* free (not counting_free) is enough here -- destroy just needs
+         * to not leak the boxed ints; ownership itself isn't under test. */
+        rbtree_t *t = rb_create(free);
+        for (size_t i = 0; i < 3; i++) {
+            assert(rb_insert(t, cases[c][i], make_int((int)i)) == 0);
+        }
+
+        assert(rb_size(t) == 3);
+        for (size_t i = 0; i < 3; i++) {
+            void *found = rb_find(t, cases[c][i]);
+            assert(found != NULL);
+            assert(*(int *)found == (int)i);
+        }
+
+        struct foreach_ctx ctx = {.last_key = NULL, .calls = 0,
+                                   .strictly_increasing = 1};
+        rb_foreach(t, foreach_check_order, &ctx);
+        assert(ctx.calls == 3);
+        assert(ctx.strictly_increasing);
+
+        rb_destroy(t);
+    }
+}
+
 /* rb_destroy's traversal must free every node's owned value across a
  * multi-node tree exactly once -- none of the tests above assert a total
  * free count after rb_destroy, so a leak or double-free in the destroy
@@ -207,6 +257,7 @@ int main(void) {
     test_insert_duplicate_overwrites_and_frees_old_value();
     test_validate_ordering_on_populated_tree();
     test_foreach_visits_in_increasing_order();
+    test_root_rotation_updates_root_pointer();
     test_destroy_frees_owned_values();
     test_null_tree_is_safe_everywhere();
 
