@@ -33,3 +33,11 @@ STATE: 7 tests are in test_rbtree.c, with comments stating what they test and wh
 DID: all 7 tests: test_create_empty, test_insert_find_mixed_order, test_insert_duplicate_overwrites_and_frees_old_value, test_validate_ordering_on_populated_tree, test_foreach_visits_in_increasing_order, test_destroy_frees_owned_values, test_null_tree_is_safe_everywhere
 DECIDED: use parent pointer, add comments for all tests, add test for checking for null in all public functions
 NEXT FIRST STEP: start implementing rbtree.c based on the tests
+
+## Commit 3 - rbtree.c Complete
+
+## Commit 4 - left_rotate, right_rotate, and rb_insert fixup Complete
+
+## Commit 5 - Stale-Root Regression Test and Early Fuzzer Complete
+
+# M1 CHECKPOINT
