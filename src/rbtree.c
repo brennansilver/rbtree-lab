@@ -41,6 +41,103 @@ rbtree_t *rb_create(rb_value_free_fn value_free) {
     return t;
 }
 
+/* Standard BST left rotation around x, re-linking through x's parent
+ * (or t->root, when x has none -- x->parent == t->nil). Only pointers
+ * move; no allocation, no key/value touched. */
+static void left_rotate(rbtree_t *t, rbnode_t *x) {
+    rbnode_t *y = x->right;
+    x->right = y->left;
+    if (y->left != t->nil) y->left->parent = x;
+    y->parent = x->parent;
+    if (x->parent == t->nil) {
+        t->root = y;
+    } else if (x == x->parent->left) {
+        x->parent->left = y;
+    } else {
+        x->parent->right = y;
+    }
+    y->left = x;
+    x->parent = y;
+}
+
+/* Mirror of left_rotate (swap left/right throughout). */
+static void right_rotate(rbtree_t *t, rbnode_t *x) {
+    rbnode_t *y = x->left;
+    x->left = y->right;
+    if (y->right != t->nil) y->right->parent = x;
+    y->parent = x->parent;
+    if (x->parent == t->nil) {
+        t->root = y;
+    } else if (x == x->parent->right) {
+        x->parent->right = y;
+    } else {
+        x->parent->left = y;
+    }
+    y->right = x;
+    x->parent = y;
+}
+
+/* Restores red-black invariants 1-3 after inserting red leaf z. Only a
+ * red parent can violate no-red-red, so the loop's job is to walk that
+ * violation up toward the root, one grandparent at a time, until either
+ * the parent is black or z reaches the root (root's parent is the
+ * shared t->nil, always black, so the loop condition stops the walk
+ * there with no extra check needed). */
+static void rb_insert_fixup(rbtree_t *t, rbnode_t *z) {
+    while (z->parent->color == RB_RED) {
+        if (z->parent == z->parent->parent->left) {
+            rbnode_t *uncle = z->parent->parent->right;
+            if (uncle->color == RB_RED) {
+                /* Case 1: red uncle. Parent and uncle can both drop to
+                 * black and grandparent can turn red without changing
+                 * any path's black-height; the violation just moves up
+                 * to the grandparent, so keep looping from there. */
+                z->parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                z = z->parent->parent;
+            } else {
+                if (z == z->parent->right) {
+                    /* Case 2: black uncle, z is the "inner" child
+                     * (zig-zag). Rotate left at the parent to make z
+                     * the outer child instead, falling through to
+                     * case 3 with z now pointing at the old parent. */
+                    z = z->parent;
+                    left_rotate(t, z);
+                }
+                /* Case 3: black uncle, z is the "outer" child
+                 * (zig-zig). Recolor parent/grandparent and rotate
+                 * right at the grandparent -- this restores
+                 * black-height at this subtree's root without needing
+                 * to touch anything further up, so the loop ends. */
+                z->parent->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                right_rotate(t, z->parent->parent);
+            }
+        } else {
+            /* Exact mirror of the above with left/right swapped. */
+            rbnode_t *uncle = z->parent->parent->left;
+            if (uncle->color == RB_RED) {
+                z->parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                z = z->parent->parent;
+            } else {
+                if (z == z->parent->left) {
+                    z = z->parent;
+                    right_rotate(t, z);
+                }
+                z->parent->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                left_rotate(t, z->parent->parent);
+            }
+        }
+    }
+    /* Unconditional: fixes the very first insert (root starts RB_RED in
+     * rb_insert) and any run where the loop pushed red up to the root. */
+    t->root->color = RB_BLACK;
+}
+
 int rb_insert(rbtree_t *t, const char *key, void *value) {
     if (!t) return -1;
 
@@ -91,6 +188,7 @@ int rb_insert(rbtree_t *t, const char *key, void *value) {
         parent->right = node;
     }
 
+    rb_insert_fixup(t, node);
     t->size++;
     return 0;
 }
